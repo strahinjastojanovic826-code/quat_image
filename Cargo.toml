@@ -6,7 +6,7 @@ authors = ["Strale <strahinjastojanovic826@gmail.com>"]
 description = "A high-performance Rust library for packing 4 pixels (2 bits each) into a single byte with FFI support."
 license = "AGPL-3.0-or-later"                     
 readme = "README.md"               
-repository = "https://github.com/tvoj_username/quat_image" 
+repository = "https://github.com/strahinjastojanovic826-code/quat_image" 
 keywords = ["image", "pixel", "packing", "ffi", "compression"]
 categories = ["data-structures", "compression", "external-ffi-bindings"] 
 
