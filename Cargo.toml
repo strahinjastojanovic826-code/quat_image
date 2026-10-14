@@ -1,0 +1,23 @@
+[package]
+name = "quat_image"
+version = "0.3.0"
+edition = "2024"
+authors = ["Strale <strahinjastojanovic826@gmail.com>"] 
+description = "A high-performance Rust library for packing 4 pixels (2 bits each) into a single byte with FFI support."
+license = "AGPL-3.0-or-later"                     
+readme = "README.md"               
+repository = "https://github.com/tvoj_username/quat_image" 
+keywords = ["image", "pixel", "packing", "ffi", "compression"]
+categories = ["data-structures", "compression", "external-ffi-bindings"] 
+
+[lib]
+name = "quat_image"
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

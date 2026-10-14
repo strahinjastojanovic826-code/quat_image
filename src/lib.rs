@@ -1,0 +1,164 @@
+mod packing;
+mod image;
+mod ffi;
+mod error;
+
+pub use packing::*;
+pub use image::*;
+pub use ffi::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::QuatImageError;
+    use crate::packing::{pack_quats, unpack_quats};
+    use crate::image::QuatImage;
+
+    // ==========================================
+    // 1. Osnovni testovi (Najlakši - Happy Path)
+    // ==========================================
+
+    // Test 1: Kreiranje slike i provera dimenzija
+    #[test]
+    fn test_01_basic_creation() {
+        let img = QuatImage::new(10, 20).unwrap();
+        assert_eq!(img.width(), 10);
+        assert_eq!(img.height(), 20);
+    }
+
+    // Test 2: Upisivanje i čitanje validnog piksela (0-3)
+    #[test]
+    fn test_02_set_and_get_pixel() {
+        let mut img = QuatImage::new(4, 4).unwrap();
+        img.set_pixel(1, 2, 3).unwrap();
+        assert_eq!(img.get_pixel(1, 2).unwrap(), 3);
+        
+        img.set_pixel(0, 0, 0).unwrap();
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 0);
+    }
+
+    // Test 3: Resetovanje/čišćenje cele slike
+    #[test]
+    fn test_03_clear_image() {
+        let mut img = QuatImage::new(2, 2).unwrap();
+        img.set_pixel(0, 0, 2).unwrap();
+        img.set_pixel(1, 1, 3).unwrap();
+        
+        img.clear();
+        
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 0);
+        assert_eq!(img.get_pixel(1, 1).unwrap(), 0);
+    }
+
+    // Test 4: Direktno pakovanje i raspakivanje kvatova (unit test za packing.rs)
+    #[test]
+    fn test_04_pack_unpack_unit() {
+        let packed = pack_quats(1, 2, 3, 0).unwrap();
+        let (q0, q1, q2, q3) = unpack_quats(packed);
+        assert_eq!(q0, 1);
+        assert_eq!(q1, 2);
+        assert_eq!(q2, 3);
+        assert_eq!(q3, 0);
+    }
+
+    // ==========================================
+    // 2. Testovi grešaka i rubnih slučajeva
+    // ==========================================
+
+    // Test 5: Greška pri upisu nevalidne vrednosti (> 3)
+    #[test]
+    fn test_05_invalid_pixel_value() {
+        let mut img = QuatImage::new(4, 4).unwrap();
+        let res = img.set_pixel(0, 0, 4); // Dozvoljeno je samo 0, 1, 2, 3
+        assert!(matches!(res, Err(QuatImageError::InvalidQuatValue(4))));
+
+        let pack_res = pack_quats(5, 0, 0, 0);
+        assert!(matches!(pack_res, Err(QuatImageError::InvalidQuatValue(5))));
+    }
+
+    // Test 6: Greška van granica (OutOfBounds)
+    #[test]
+    fn test_06_out_of_bounds() {
+        let mut img = QuatImage::new(5, 5).unwrap();
+        assert!(matches!(img.get_pixel(5, 0), Err(QuatImageError::OutOfBounds)));
+        assert!(matches!(img.get_pixel(0, 5), Err(QuatImageError::OutOfBounds)));
+        assert!(matches!(img.set_pixel(10, 10, 1), Err(QuatImageError::OutOfBounds)));
+    }
+
+    // Test 7: Nevalidne dimenzije slike (nula širina ili visina)
+    #[test]
+    fn test_07_invalid_dimensions() {
+        assert!(matches!(QuatImage::new(0, 10), Err(QuatImageError::InvalidDimensions)));
+        assert!(matches!(QuatImage::new(10, 0), Err(QuatImageError::InvalidDimensions)));
+        assert!(matches!(QuatImage::new(0, 0), Err(QuatImageError::InvalidDimensions)));
+    }
+
+    // ==========================================
+    // 3. Kompleksniji i stresni testovi
+    // ==========================================
+
+    // Test 8: Transformacije slike (Horizontalni i Vertikalni flip)
+    #[test]
+    fn test_08_transformations_flip() {
+        let mut img = QuatImage::new(2, 2).unwrap();
+        // Red 0: [1, 2]
+        // Red 1: [0, 3]
+        img.set_pixel(0, 0, 1).unwrap();
+        img.set_pixel(1, 0, 2).unwrap();
+        img.set_pixel(0, 1, 0).unwrap();
+        img.set_pixel(1, 1, 3).unwrap();
+
+        // Horizontalni flip -> Red 0 postaje [2, 1], Red 1 postaje [3, 0]
+        img.flip_horizontal().unwrap();
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 2);
+        assert_eq!(img.get_pixel(1, 0).unwrap(), 1);
+        assert_eq!(img.get_pixel(0, 1).unwrap(), 3);
+        assert_eq!(img.get_pixel(1, 1).unwrap(), 0);
+
+        // Vertikalni flip nazad
+        img.flip_vertical().unwrap();
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 3);
+        assert_eq!(img.get_pixel(1, 0).unwrap(), 0);
+    }
+
+    // Test 9: Zaštita od prekoračenja memorije (Integer Overflow)
+    #[test]
+    fn test_09_integer_overflow_protection() {
+        let res = QuatImage::new(usize::MAX, usize::MAX);
+        assert!(matches!(res, Err(QuatImageError::IntegerOverflow)));
+    }
+
+    // Test 10: Najstresniji test izdržljivosti (Velika mreža od 1000x1000 piksela, masivan upis/čitanje i kaskadne transformacije)
+    #[test]
+    fn test_10_stress_endurance_massive_grid() {
+        const WIDTH: usize = 1000;
+        const HEIGHT: usize = 1000;
+        let mut img = QuatImage::new(WIDTH, HEIGHT).unwrap();
+
+        // Masivno upisivanje preko 1.000.000 piksela sa kalkulisanim vrednostima (0-3)
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let val = ((x + y) % 4) as u8;
+                img.set_pixel(x, y, val).unwrap();
+            }
+        }
+
+        // Provera integriteta za svaki pojedinačni piksel posle pakovanja u bajtove
+        for y in 0..HEIGHT {
+            for x in 0..WIDTH {
+                let expected = ((x + y) % 4) as u8;
+                let actual = img.get_pixel(x, y).unwrap();
+                assert_eq!(actual, expected, "Data mismatch at coordinate ({}, {})", x, y);
+            }
+        }
+
+        // Stres testiranje rotacija/flipovanja na ogromnom nizu
+        img.flip_horizontal().unwrap();
+        img.flip_vertical().unwrap();
+
+        // Provera tačnosti ugla nakon višestrukih transformacija
+        let corner_val = img.get_pixel(0, 0).unwrap();
+        let expected_corner = (((WIDTH - 1) + (HEIGHT - 1)) % 4) as u8;
+        assert_eq!(corner_val, expected_corner);
+    }
+}
