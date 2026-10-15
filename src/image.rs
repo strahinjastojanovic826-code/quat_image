@@ -67,6 +67,78 @@ impl QuatImage {
         Ok(())
     }
 
+    pub fn crop(&self, x: usize, y: usize, crop_width: usize, crop_height: usize) -> Result<Self, QuatImageError> {
+        if x + crop_width > self.width || y + crop_height > self.height {
+            return Err(QuatImageError::OutOfBounds);
+        }
+        if crop_width == 0 || crop_height == 0 {
+            return Err(QuatImageError::InvalidDimensions);
+        }
+
+        let mut cropped = Self::new(crop_width, crop_height)?;
+        for cy in 0..crop_height {
+            for cx in 0..crop_width {
+                let val = unsafe { self.get_pixel_unchecked(x + cx, y + cy) };
+                unsafe {
+                    cropped.set_pixel_unchecked(cx, cy, val);
+                }
+            }
+        }
+        Ok(cropped)
+    }
+
+    pub fn histogram(&self) -> [usize; 4] {
+        let mut counts = [0; 4];
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let val = unsafe { self.get_pixel_unchecked(x, y) } as usize;
+                if val < 4 {
+                    counts[val] += 1;
+                }
+            }
+        }
+        counts
+    }
+
+    pub fn rotate_90_cw(&mut self) -> Result<(), QuatImageError> {
+        let mut new_img = Self::new(self.height, self.width)?;
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let val = unsafe { self.get_pixel_unchecked(x, y) };
+                let new_x = y;
+                let new_y = self.width - 1 - x;
+                unsafe {
+                    new_img.set_pixel_unchecked(new_x, new_y, val);
+                }
+            }
+        }
+        self.width = new_img.width;
+        self.height = new_img.height;
+        self.data = new_img.data;
+        Ok(())
+    }
+
+    pub fn replace_color(&mut self, target: u8, replacement: u8) -> Result<(), QuatImageError> {
+        if target > 3 || replacement > 3 {
+            return Err(QuatImageError::InvalidQuatValue(if target > 3 { target } else { replacement }));
+        }
+        if target == replacement {
+            return Ok(());
+        }
+
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let val = unsafe { self.get_pixel_unchecked(x, y) };
+                if val == target {
+                    unsafe {
+                        self.set_pixel_unchecked(x, y, replacement);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     #[inline]
     pub unsafe fn set_pixel_unchecked(&mut self, x: usize, y: usize, val: u8) { unsafe {
         let pixel_index = y * self.width + x;

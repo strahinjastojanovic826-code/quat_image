@@ -2,6 +2,7 @@ mod packing;
 mod image;
 mod ffi;
 mod error;
+mod io;
 
 pub use packing::*;
 pub use image::*;
@@ -161,4 +162,33 @@ mod tests {
         let expected_corner = (((WIDTH - 1) + (HEIGHT - 1)) % 4) as u8;
         assert_eq!(corner_val, expected_corner);
     }
+    #[test]
+fn test_rotate_90_cw() {
+    let mut img = QuatImage::new(2, 1).unwrap();
+    img.set_pixel(0, 0, 1).unwrap();
+    img.set_pixel(1, 0, 2).unwrap();
+
+    img.rotate_90_cw().unwrap();
+
+    assert_eq!(img.width(), 1);
+    assert_eq!(img.height(), 2);
+    assert_eq!(img.get_pixel(0, 0).unwrap(), 2);
+    assert_eq!(img.get_pixel(0, 1).unwrap(), 1);
+}
+
+// Test for calculating histogram
+#[test]
+fn test_histogram() {
+    let mut img = QuatImage::new(2, 2).unwrap();
+    img.set_pixel(0, 0, 1).unwrap();
+    img.set_pixel(1, 0, 1).unwrap();
+    img.set_pixel(0, 1, 3).unwrap();
+    // (1, 1) remains 0 by default
+
+    let hist = img.histogram();
+    assert_eq!(hist[0], 1); // 1 pixel with value 0
+    assert_eq!(hist[1], 2); // 2 pixels with value 1
+    assert_eq!(hist[2], 0); // 0 pixels with value 2
+    assert_eq!(hist[3], 1); // 1 pixel with value 3
+  }
 }

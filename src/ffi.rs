@@ -65,6 +65,44 @@ pub extern "C" fn quat_image_width(handle: *const QuatImageHandle) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn quat_image_rotate_90_cw(handle: *mut QuatImageHandle) -> c_int {
+    if handle.is_null() { return -1; }
+    safe_ffi(|| {
+        unsafe { (*handle).inner.rotate_90_cw()? };
+        Ok(0)
+    }, -1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_image_get_histogram(
+    handle: *const QuatImageHandle,
+    out_counts: *mut usize,
+) -> c_int {
+    if handle.is_null() || out_counts.is_null() { return -1; }
+    safe_ffi(|| {
+        let counts = unsafe { (*handle).inner.histogram() };
+        unsafe {
+            let slice = std::slice::from_raw_parts_mut(out_counts, 4);
+            slice.copy_from_slice(&counts);
+        }
+        Ok(0)
+    }, -1)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_image_replace_color(
+    handle: *mut QuatImageHandle,
+    target: u8,
+    replacement: u8,
+) -> c_int {
+    if handle.is_null() { return -1; }
+    safe_ffi(|| {
+        unsafe { (*handle).inner.replace_color(target, replacement)? };
+        Ok(0)
+    }, -1)
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn quat_image_height(handle: *const QuatImageHandle) -> c_int {
     if handle.is_null() { return -1; }
     unsafe { (*handle).inner.height() as c_int }

@@ -4,10 +4,12 @@
 
 ## Features
 
-* **Extreme Memory Efficiency:** Packs four 2-bit pixels per byte, reducing memory footprints by 75% compared to standard 8-bit grayscale images.
-* **FFI Panic Safety:** Built-in `std::panic::catch_unwind` protection prevents Rust panics from crossing the FFI boundary and causing undefined behavior in host applications.
-* **Thread-Local Error Management:** Safely propagates detailed error messages across language boundaries via thread-local storage.
-* **Optimized Internal Layout & Raw Access:** Supports fast pixel access, in-place horizontal/vertical flips, and raw buffer pointers (`quat_image_data_ptr`) for high-performance loops.
+* **Extreme Memory Efficiency:** Packs four 2-bit pixels per byte, minimizing memory footprint.
+* **FFI Panic Safety:** Built-in `std::panic::catch_unwind` protection prevents Rust panics from propagating into host C applications.
+* **Thread-Local Error Management:** Safely propagates detailed error messages across language boundaries.
+* **Optimized Internal Layout & Raw Access:** Supports fast pixel access, raw data pointers (`quat_image_data_ptr`), and zero-cost abstractions for high-performance loops.
+* **Advanced Transformations & Analysis:** Includes 90° rotation, cropping, color replacement, and histogram generation.
+* **Binary Persistence:** Built-in file saving and loading with custom magic header verification.
 
 ---
 
@@ -28,8 +30,7 @@ Add the library to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-quat_image = 0.3.0 
-(happends sometime)
+quat_image = 0.4.0 
 ```
 
 Configure your library crate type for FFI compilation:
@@ -48,18 +49,27 @@ crate-type = ["cdylib", "staticlib"]
 use quat_image::image::QuatImage;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a new 10x10 packed image
-    let mut img = QuatImage::new(10, 10)?;
+    // Create a new 4x4 packed quat image
+    let mut img = QuatImage::new(4, 4)?;
+    
+    // Set sample pixel values (valid range: 0 to 3)
+    img.set_pixel(0, 0, 1)?;
+    img.set_pixel(1, 0, 2)?;
+    img.set_pixel(2, 0, 3)?;
 
-    // Set a pixel at coordinate (2, 3) with value 3 (max 2-bit value)
-    img.set_pixel(2, 3, 3)?;
+    // Rotate the image 90 degrees clockwise
+    img.rotate_90_cw()?;
 
-    // Retrieve and verify the pixel value
-    let val = img.get_pixel(2, 3)?;
-    println!("Pixel value: {}", val); // Outputs: 3
+    // Calculate histogram of quat values (0, 1, 2, 3)
+    let hist = img.histogram();
+    println!("Histogram -> 0: {}, 1: {}, 2: {}, 3: {}", hist[0], hist[1], hist[2], hist[3]);
 
-    // Perform an in-place horizontal flip
-    img.flip_horizontal()?;
+    // Replace color values across the entire image
+    img.replace_color(1, 3)?;
+
+    // Crop a sub-region (x: 0, y: 0, width: 2, height: 2)
+    let cropped = img.crop(0, 0, 2, 2)?;
+    println!("Cropped image dimensions: {}x{}", cropped.width(), cropped.height());
 
     Ok(())
 }
@@ -90,32 +100,52 @@ The library exposes a C-compatible API (`extern "C"`) allowing seamless interact
 #include <stdlib.h>
 #include <stdint.h>
 
+// Opaque handle for QuatImage
 typedef struct QuatImageHandle QuatImageHandle;
 
+// External FFI functions
 extern QuatImageHandle* quat_image_new(unsigned int width, unsigned int height);
 extern void quat_image_free(QuatImageHandle* handle);
 extern int quat_image_width(const QuatImageHandle* handle);
 extern int quat_image_height(const QuatImageHandle* handle);
 extern int quat_image_get_pixel(const QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t* result);
 extern int quat_image_set_pixel(QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t val);
+extern int quat_image_rotate_90_cw(QuatImageHandle* handle);
+extern int quat_image_get_histogram(const QuatImageHandle* handle, size_t* out_counts);
+extern int quat_image_replace_color(QuatImageHandle* handle, uint8_t target, uint8_t replacement);
 extern const char* quat_image_get_last_error_message(void);
 extern void quat_image_free_error_message(char* ptr);
 
 int main() {
-    QuatImageHandle* handle = quat_image_new(10, 10);
+    // Create a new 4x4 image
+    QuatImageHandle* handle = quat_image_new(4, 4);
     if (!handle) {
         const char* err = quat_image_get_last_error_message();
-        fprintf(stderr, "Error: %s\n", err ? err : "Unknown");
+        fprintf(stderr, "Failed to create image: %s\n", err ? err : "Unknown");
         if (err) quat_image_free_error_message((char*)err);
         return 1;
     }
 
-    quat_image_set_pixel(handle, 2, 3, 3);
-    uint8_t val = 0;
-    quat_image_get_pixel(handle, 2, 3, &val);
-    printf("C Pixel: %u\n", val);
+    // Set pixels
+    quat_image_set_pixel(handle, 0, 0, 1);
+    quat_image_set_pixel(handle, 1, 0, 2);
 
+    // Rotate 90 degrees clockwise
+    quat_image_rotate_90_cw(handle);
+
+    // Get histogram
+    size_t histogram[4];
+    if (quat_image_get_histogram(handle, histogram) == 0) {
+        printf("Histogram -> 0: %zu, 1: %zu, 2: %zu, 3: %zu\n", 
+            histogram[0], histogram[1], histogram[2], histogram[3]);
+    }
+
+    // Replace color
+    quat_image_replace_color(handle, 1, 3);
+
+    // Cleanup memory
     quat_image_free(handle);
+    printf("C example executed successfully.\n");
     return 0;
 }
 ```
@@ -138,6 +168,9 @@ extern "C" {
     int quat_image_height(const QuatImageHandle* handle);
     int quat_image_get_pixel(const QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t* result);
     int quat_image_set_pixel(QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t val);
+    int quat_image_rotate_90_cw(QuatImageHandle* handle);
+    int quat_image_get_histogram(const QuatImageHandle* handle, std::size_t* out_counts);
+    int quat_image_replace_color(QuatImageHandle* handle, uint8_t target, uint8_t replacement);
     const char* quat_image_get_last_error_message();
     void quat_image_free_error_message(char* ptr);
 }
@@ -145,6 +178,7 @@ extern "C" {
 class QuatImage {
 private:
     QuatImageHandle* handle;
+
     void check_error() {
         const char* err_ptr = quat_image_get_last_error_message();
         if (err_ptr) {
@@ -153,35 +187,63 @@ private:
             throw std::runtime_error(msg);
         }
     }
+
 public:
     QuatImage(unsigned int w, unsigned int h) {
         handle = quat_image_new(w, h);
-        if (!handle) { check_error(); throw std::runtime_error("Failed to create image"); }
+        if (!handle) check_error();
     }
-    ~QuatImage() { if (handle) quat_image_free(handle); }
-    void set_pixel(unsigned int x, unsigned int y, uint8_t val) {
-        if (quat_image_set_pixel(handle, x, y, val) != 0) check_error();
-    }
-    uint8_t get_pixel(unsigned int x, unsigned int y) const {
-        uint8_t val = 0;
-        if (quat_image_get_pixel(handle, x, y, &val) != 0) {
-            const char* err_ptr = quat_image_get_last_error_message();
-            std::string msg(err_ptr ? err_ptr : "Unknown error");
-            if (err_ptr) quat_image_free_error_message(const_cast<char*>(err_ptr));
-            throw std::runtime_error(msg);
+
+    ~QuatImage() {
+        if (handle) {
+            quat_image_free(handle);
         }
-        return val;
+    }
+
+    void set_pixel(unsigned int x, unsigned int y, uint8_t val) {
+        if (quat_image_set_pixel(handle, x, y, val) != 0) {
+            check_error();
+        }
+    }
+
+    void rotate_90_cw() {
+        if (quat_image_rotate_90_cw(handle) != 0) {
+            check_error();
+        }
+    }
+
+    void get_histogram(std::size_t out_counts[4]) const {
+        if (quat_image_get_histogram(handle, out_counts) != 0) {
+            throw std::runtime_error("Failed to retrieve histogram");
+        }
+    }
+
+    void replace_color(uint8_t target, uint8_t replacement) {
+        if (quat_image_replace_color(handle, target, replacement) != 0) {
+            check_error();
+        }
     }
 };
 
 int main() {
     try {
-        QuatImage img(10, 10);
-        img.set_pixel(2, 3, 3);
-        std::cout << "C++ Pixel: " << (int)img.get_pixel(2, 3) << std::endl;
+        QuatImage img(4, 4);
+        img.set_pixel(0, 0, 1);
+        img.set_pixel(1, 0, 2);
+
+        img.rotate_90_cw();
+
+        std::size_t hist[4];
+        img.get_histogram(hist);
+        std::cout << "C++ Histogram -> 0: " << hist[0] << ", 1: " << hist[1] 
+                  << ", 2: " << hist[2] << ", 3: " << hist[3] << std::endl;
+
+        img.replace_color(1, 3);
+        std::cout << "C++ example executed successfully." << std::endl;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
     }
+    return 0;
 }
 ```
 
@@ -193,39 +255,78 @@ int main() {
 using System;
 using System.Runtime.InteropServices;
 
-public class QuatImage : IDisposable {
-    IntPtr handle;
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern IntPtr quat_image_new(uint w, uint h);
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern void quat_image_free(IntPtr h);
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern int quat_image_set_pixel(IntPtr h, uint x, uint y, byte val);
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern int quat_image_get_pixel(IntPtr h, uint x, uint y, out byte res);
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern IntPtr quat_image_get_last_error_message();
-    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
-    static extern void quat_image_free_error_message(IntPtr ptr);
+public class QuatImageWrapper : IDisposable {
+    private IntPtr handle;
 
-    public QuatImage(uint w, uint h) {
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr quat_image_new(uint width, uint height);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void quat_image_free(IntPtr handle);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int quat_image_set_pixel(IntPtr handle, uint x, uint y, byte val);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int quat_image_rotate_90_cw(IntPtr handle);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern int quat_image_replace_color(IntPtr handle, byte target, byte replacement);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr quat_image_get_last_error_message();
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void quat_image_free_error_message(IntPtr ptr);
+
+    public QuatImageWrapper(uint w, uint h) {
         handle = quat_image_new(w, h);
         if (handle == IntPtr.Zero) ThrowError();
     }
+
     public void SetPixel(uint x, uint y, byte val) {
         if (quat_image_set_pixel(handle, x, y, val) != 0) ThrowError();
     }
-    public byte GetPixel(uint x, uint y) {
-        if (quat_image_get_pixel(handle, x, y, out byte val) != 0) ThrowError();
-        return val;
+
+    public void Rotate90Cw() {
+        if (quat_image_rotate_90_cw(handle) != 0) ThrowError();
     }
-    void ThrowError() {
+
+    public void ReplaceColor(byte target, byte replacement) {
+        if (quat_image_replace_color(handle, target, replacement) != 0) ThrowError();
+    }
+
+    private void ThrowError() {
         IntPtr ptr = quat_image_get_last_error_message();
-        string msg = ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : "Error";
+        string msg = ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : "Unknown error";
         if (ptr != IntPtr.Zero) quat_image_free_error_message(ptr);
         throw new Exception(msg);
     }
-    public void Dispose() { if (handle != IntPtr.Zero) { quat_image_free(handle); handle = IntPtr.Zero; } }
+
+    public void Dispose() {
+        if (handle != IntPtr.Zero) {
+            quat_image_free(handle);
+            handle = IntPtr.Zero;
+        }
+    }
+}
+
+class Program {
+    static void Main() {
+        try {
+            using (var img = new QuatImageWrapper(4, 4)) {
+                img.SetPixel(0, 0, 1);
+                img.SetPixel(1, 0, 2);
+
+                img.Rotate90Cw();
+                img.ReplaceColor(1, 3);
+
+                Console.WriteLine("C# example executed successfully.");
+            }
+        } catch (Exception ex) {
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+    }
 }
 ```
 
@@ -236,30 +337,92 @@ public class QuatImage : IDisposable {
 ```python
 import ctypes
 
+# Load the shared library (adjust the filename for Windows .dll or macOS .dylib if needed)
 lib = ctypes.CDLL("./libquat_image.so")
+
+# Define argument and return types for FFI functions
 lib.quat_image_new.argtypes = [ctypes.c_uint, ctypes.c_uint]
 lib.quat_image_new.restype = ctypes.c_void_p
+
 lib.quat_image_free.argtypes = [ctypes.c_void_p]
+
 lib.quat_image_set_pixel.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.c_ubyte]
+lib.quat_image_set_pixel.restype = ctypes.c_int
+
 lib.quat_image_get_pixel.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint, ctypes.POINTER(ctypes.c_ubyte)]
+lib.quat_image_get_pixel.restype = ctypes.c_int
+
+lib.quat_image_rotate_90_cw.argtypes = [ctypes.c_void_p]
+lib.quat_image_rotate_90_cw.restype = ctypes.c_int
+
+lib.quat_image_get_histogram.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t)]
+lib.quat_image_get_histogram.restype = ctypes.c_int
+
+lib.quat_image_replace_color.argtypes = [ctypes.c_void_p, ctypes.c_ubyte, ctypes.c_ubyte]
+lib.quat_image_replace_color.restype = ctypes.c_int
+
 lib.quat_image_get_last_error_message.restype = ctypes.c_char_p
 lib.quat_image_free_error_message.argtypes = [ctypes.c_char_p]
 
 class QuatImage:
     def __init__(self, w, h):
         self.handle = lib.quat_image_new(w, h)
-        if not self.handle: self._err()
+        if not self.handle:
+            self._err()
+
     def __del__(self):
-        if hasattr(self, 'handle') and self.handle: lib.quat_image_free(self.handle)
+        if hasattr(self, 'handle') and self.handle:
+            lib.quat_image_free(self.handle)
+
     def set_pixel(self, x, y, v):
-        if lib.quat_image_set_pixel(self.handle, x, y, v) != 0: self._err()
+        if lib.quat_image_set_pixel(self.handle, x, y, v) != 0:
+            self._err()
+
     def get_pixel(self, x, y):
         val = ctypes.c_ubyte()
-        if lib.quat_image_get_pixel(self.handle, x, y, ctypes.byref(val)) != 0: self._err()
+        if lib.quat_image_get_pixel(self.handle, x, y, ctypes.byref(val)) != 0:
+            self._err()
         return val.value
+
+    def rotate_90_cw(self):
+        if lib.quat_image_rotate_90_cw(self.handle) != 0:
+            self._err()
+
+    def get_histogram(self):
+        counts = (ctypes.c_size_t * 4)()
+        if lib.quat_image_get_histogram(self.handle, counts) != 0:
+            self._err()
+        return list(counts)
+
+    def replace_color(self, target, replacement):
+        if lib.quat_image_replace_color(self.handle, target, replacement) != 0:
+            self._err()
+
     def _err(self):
         ptr = lib.quat_image_get_last_error_message()
-        msg = ptr.decode('utf-8') if ptr else "Error"
-        if ptr: lib.quat_image_free_error_message(ptr)
+        msg = ptr.decode('utf-8') if ptr else "Unknown error"
+        if ptr:
+            lib.quat_image_free_error_message(ptr)
         raise RuntimeError(msg)
+
+if __name__ == "__main__":
+    try:
+        # Create a 4x4 quat image
+        img = QuatImage(4, 4)
+        img.set_pixel(0, 0, 1)
+        img.set_pixel(1, 0, 2)
+
+        # Rotate 90 degrees clockwise
+        img.rotate_90_cw()
+
+        # Get and print histogram
+        hist = img.get_histogram()
+        print(f"Python Histogram -> 0: {hist[0]}, 1: {hist[1]}, 2: {hist[2]}, 3: {hist[3]}")
+
+        # Replace color
+        img.replace_color(1, 3)
+        print("Python example executed successfully.")
+        
+    except Exception as e:
+        print(f"Error: {e}")
 ```
