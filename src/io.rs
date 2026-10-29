@@ -49,4 +49,35 @@ impl QuatImage {
 
         Ok(img)
     }
+    pub fn save_to_file_rle<P: AsRef<Path>>(&self, path: P) -> Result<(), std::io::Error> {
+    let mut file = File::create(path)?;
+    file.write_all(b"QRLE")?; // Special RLE Magic Header
+    file.write_all(&(self.width() as u64).to_le_bytes())?;
+    file.write_all(&(self.height() as u64).to_le_bytes())?;
+
+    let data = self.as_bytes();
+    let mut encoded: Vec<u8> = Vec::new();
+    
+    if !data.is_empty() {
+        let mut current_byte = data[0];
+        let mut count: u8 = 1;
+
+        for &b in &data[1..] {
+            if b == current_byte && count < 255 {
+                count += 1;
+            } else {
+                encoded.push(count);
+                encoded.push(current_byte);
+                current_byte = b;
+                count = 1;
+            }
+        }
+        encoded.push(count);
+        encoded.push(current_byte);
+    }
+
+    file.write_all(&(encoded.len() as u64).to_le_bytes())?;
+    file.write_all(&encoded)?;
+    Ok(())
+}
 }

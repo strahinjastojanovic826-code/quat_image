@@ -171,3 +171,20 @@ pub extern "C" fn quat_image_copy_bytes(
         Ok(bytes.len() as c_int)
     }, -1)
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_image_replace_color_par(
+    handle: *mut QuatImageHandle,
+    target: u8,
+    replacement: u8,
+) -> c_int {
+    if handle.is_null() {
+        return -1;
+    }
+    safe_ffi(|| {
+        unsafe {
+            (*handle).inner.replace_color_par(target, replacement)?;
+        }
+        Ok(0)
+    }, -1)
+}

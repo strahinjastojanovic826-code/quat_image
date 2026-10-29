@@ -10,6 +10,11 @@
 * **Optimized Internal Layout & Raw Access:** Supports fast pixel access, raw data pointers (`quat_image_data_ptr`), and zero-cost abstractions for high-performance loops.
 * **Advanced Transformations & Analysis:** Includes 90° rotation, cropping, color replacement, and histogram generation.
 * **Binary Persistence:** Built-in file saving and loading with custom magic header verification.
+* **SIMD & Batch Optimization:** High-performance vectorized block packing and unpacking for maximum CPU throughput.
+* **Multithreading Support:** Parallel pixel processing across multiple CPU cores using Rayon for heavy image workloads.
+* **Lossless RLE Compression:** Compact binary file saving and loading using Run-Length Encoding (RLE) to minimize disk usage.
+* **Advanced Computer Vision:** Built-in morphological operations such as dilation for quaternary and binary mask analysis.
+* **Standard Image Quantization:** Automatic luminance conversion and mapping from standard RGB8 image buffers into 4-level quaternary format.
 
 ---
 
@@ -30,7 +35,7 @@ Add the library to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-quat_image = 0.4.0 
+quat_image = 0.5.0 
 ```
 
 Configure your library crate type for FFI compilation:
@@ -70,6 +75,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Crop a sub-region (x: 0, y: 0, width: 2, height: 2)
     let cropped = img.crop(0, 0, 2, 2)?;
     println!("Cropped image dimensions: {}x{}", cropped.width(), cropped.height());
+
+    Ok(())
+}
+```
+
+---
+
+## Advanced Usage 
+
+You can leverage multi-threading, computer vision operations, standard RGB conversion, and lossless RLE compression:
+
+```rust
+use quat_image::image::QuatImage;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Convert standard RGB8 image buffer into quaternary format (Quantization)
+    let rgb_data = vec![
+        10, 10, 10,     // Maps to quat 0
+        90, 90, 90,     // Maps to quat 1
+        160, 160, 160,  // Maps to quat 2
+        250, 250, 250,  // Maps to quat 3
+    ];
+    let mut img = QuatImage::from_rgb8(2, 2, &rgb_data)?;
+
+    // 2. Parallel color replacement across multiple CPU cores (Rayon multithreading)
+    img.replace_color_par(1, 3)?;
+
+    // 3. Apply morphological dilation (Computer Vision 3x3 max filter)
+    let dilated = img.dilate()?;
+
+    // 4. Save image using compact lossless RLE compression
+    dilated.save_to_file_rle("compressed_output.qimg")?;
 
     Ok(())
 }

@@ -67,6 +67,32 @@ impl QuatImage {
         Ok(())
     }
 
+    pub fn dilate(&self) -> Result<Self, QuatImageError> {
+    let mut result = Self::new(self.width, self.height)?;
+    for y in 0..self.height {
+        for x in 0..self.width {
+            let mut max_val = 0;
+            for dy in -1..=1 {
+                for dy_u in [dy].iter() {
+                    // Safe neighborhood boundary checking
+                    let ny = y as isize + *dy_u;
+                    for dx in -1..=1 {
+                        let nx = x as isize + dx;
+                        if nx >= 0 && nx < self.width as isize && ny >= 0 && ny < self.height as isize {
+                            let val = unsafe { self.get_pixel_unchecked(nx as usize, ny as usize) };
+                            if val > max_val {
+                                max_val = val;
+                            }
+                        }
+                    }
+                }
+            }
+            unsafe { result.set_pixel_unchecked(x, y, max_val); }
+        }
+    }
+    Ok(result)
+}
+
     pub fn crop(&self, x: usize, y: usize, crop_width: usize, crop_height: usize) -> Result<Self, QuatImageError> {
         if x + crop_width > self.width || y + crop_height > self.height {
             return Err(QuatImageError::OutOfBounds);
@@ -87,6 +113,38 @@ impl QuatImage {
         Ok(cropped)
     }
 
+    pub fn replace_color_par(&mut self, target: u8, replacement: u8) -> Result<(), QuatImageError> {
+    if target > 3 || replacement > 3 {
+        return Err(QuatImageError::InvalidQuatValue(if target > 3 { target } else { replacement }));
+    }
+    if target == replacement {
+        return Ok(());
+    }
+
+    use rayon::prelude::*;
+
+    self.data.par_iter_mut().try_for_each(|byte| -> Result<(), QuatImageError> {
+        let (q0, q1, q2, q3) = unpack_quats(*byte);
+        let mut modified = false;
+        let mut nq0 = q0;
+        let mut nq1 = q1;
+        let mut nq2 = q2;
+        let mut nq3 = q3;
+
+        if q0 == target { nq0 = replacement; modified = true; }
+        if q1 == target { nq1 = replacement; modified = true; }
+        if q2 == target { nq2 = replacement; modified = true; }
+        if q3 == target { nq3 = replacement; modified = true; }
+
+        if modified {
+            *byte = pack_quats(nq0, nq1, nq2, nq3)?;
+        }
+        Ok(())
+    })?;
+
+    Ok(())
+}
+
     pub fn histogram(&self) -> [usize; 4] {
         let mut counts = [0; 4];
         for y in 0..self.height {
@@ -99,6 +157,33 @@ impl QuatImage {
         }
         counts
     }
+
+    pub fn from_rgb8(width: usize, height: usize, rgb_data: &[u8]) -> Result<Self, QuatImageError> {
+    if rgb_data.len() != width * height * 3 {
+        return Err(QuatImageError::InvalidDimensions);
+    }
+    
+    let mut img = Self::new(width, height)?;
+    for (i, chunk) in rgb_data.chunks_exact(3).enumerate() {
+        let x = i % width;
+        let y = i / width;
+        
+        // Standard luminance calculation (Rec. 709)
+        let gray = (0.2126 * chunk[0] as f32 + 0.7152 * chunk[1] as f32 + 0.0722 * chunk[2] as f32) as u8;
+        
+        // Quantize 0..255 range into 4 quaternary levels (0, 1, 2, 3)
+        let quat_val = match gray {
+            0..=63 => 0,
+            64..=127 => 1,
+            128..=191 => 2,
+            _ => 3,
+        };
+        
+        img.set_pixel(x, y, quat_val)?;
+    }
+    
+    Ok(img)
+}
 
     pub fn rotate_90_cw(&mut self) -> Result<(), QuatImageError> {
         let mut new_img = Self::new(self.height, self.width)?;

@@ -191,4 +191,73 @@ fn test_histogram() {
     assert_eq!(hist[2], 0); // 0 pixels with value 2
     assert_eq!(hist[3], 1); // 1 pixel with value 3
   }
+  #[test]
+    fn test_pack_quats_slice_batch() {
+        let quats = vec![0, 1, 2, 3, 3, 2, 1, 0];
+        let mut packed = vec![0u8; 2];
+        
+        // Test uspešnog grupnog pakovanja
+        let res = pack_quats_slice(&quats, &mut packed);
+        assert!(res.is_ok());
+        
+        // Provera ispravnosti bitovskog pakovanja
+        assert_eq!(packed[0], (3 << 6) | (2 << 4) | (1 << 2) | 0);
+        assert_eq!(packed[1], (0 << 6) | (1 << 4) | (2 << 2) | 3);
+
+        // Test greške pri neadekvatnoj veličini niza (nije deljiv sa 4)
+        let invalid_quats = vec![0, 1, 2];
+        let mut invalid_packed = vec![0u8; 1];
+        assert!(matches!(
+            pack_quats_slice(&invalid_quats, &mut invalid_packed),
+            Err(QuatImageError::InvalidDimensions)
+        ));
+    }
+
+    #[test]
+    fn test_morphological_dilation() {
+        let mut img = QuatImage::new(3, 3).unwrap();
+        // Postavljamo jedan piksel sa maksimalnom vrednošću 3 u sredinu
+        img.set_pixel(1, 1, 3).unwrap();
+        
+        // Dilatacija (max filter u 3x3 okolini) treba da proširi vrednost 3 na sve okolne piksele
+        let dilated = img.dilate().unwrap();
+        
+        assert_eq!(dilated.get_pixel(0, 0).unwrap(), 3);
+        assert_eq!(dilated.get_pixel(1, 0).unwrap(), 3);
+        assert_eq!(dilated.get_pixel(2, 2).unwrap(), 3);
+    }
+
+    #[test]
+    fn test_replace_color_parallel() {
+        let mut img = QuatImage::new(3, 3).unwrap();
+        img.set_pixel(0, 0, 1).unwrap();
+        img.set_pixel(2, 2, 1).unwrap();
+        
+        // Paralelna zamena vrednosti 1 sa vrednošću 2 preko Rayon-a
+        img.replace_color_par(1, 2).unwrap();
+        
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 2);
+        assert_eq!(img.get_pixel(2, 2).unwrap(), 2);
+        assert_eq!(img.get_pixel(1, 1).unwrap(), 0); // Ostalo nevažno/podrazumevano
+    }
+
+    #[test]
+    fn test_rgb8_quantization_conversion() {
+        // Simuliramo 4 piksela standardnog RGB niza (tamno, srednje-nisko, srednje-visoko, svetlo)
+        let rgb_data = vec![
+            10, 10, 10,     // Treba da se mapira u kvart 0
+            80, 80, 80,     // Treba da se mapira u kvart 1
+            150, 150, 150,  // Treba da se mapira u kvart 2
+            240, 240, 240,  // Treba da se mapira u kvart 3
+        ];
+        
+        let img = QuatImage::from_rgb8(2, 2, &rgb_data).unwrap();
+        
+        assert_eq!(img.width(), 2);
+        assert_eq!(img.height(), 2);
+        assert_eq!(img.get_pixel(0, 0).unwrap(), 0);
+        assert_eq!(img.get_pixel(1, 0).unwrap(), 1);
+        assert_eq!(img.get_pixel(0, 1).unwrap(), 2);
+        assert_eq!(img.get_pixel(1, 1).unwrap(), 3);
+    }
 }
