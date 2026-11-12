@@ -188,3 +188,37 @@ pub extern "C" fn quat_image_replace_color_par(
         Ok(0)
     }, -1)
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_image_erode(
+    handle: *mut QuatImageHandle,
+) -> *mut QuatImageHandle {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let res_handle = std::ptr::null_mut();
+    safe_ffi(|| {
+        let img = unsafe { &(*handle).inner };
+        let eroded = img.erode()?;
+        let res_handle = Box::into_raw(Box::new(QuatImageHandle { inner: eroded }));
+        Ok(res_handle)
+    }, std::ptr::null_mut());
+    res_handle
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn quat_image_dilate(
+    handle: *mut QuatImageHandle,
+) -> *mut QuatImageHandle {
+    if handle.is_null() {
+        return std::ptr::null_mut();
+    }
+    let res_handle = std::ptr::null_mut();
+    safe_ffi(|| {
+        let img = unsafe { &(*handle).inner };
+        let dilated = img.dilate()?;
+        let res_handle = Box::into_raw(Box::new(QuatImageHandle { inner: dilated }));
+        Ok(res_handle)
+    }, std::ptr::null_mut());
+    res_handle
+}

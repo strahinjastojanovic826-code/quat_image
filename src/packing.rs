@@ -36,3 +36,25 @@ pub fn pack_quats_slice(quats: &[u8], packed: &mut [u8]) -> Result<(), QuatImage
     }
     Ok(())
 }
+
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+pub fn pack_quats_simd(quats: &[u8], packed: &mut [u8]) -> Result<(), QuatImageError> {
+    if quats.len() % 4 != 0 || packed.len() != quats.len() / 4 {
+        return Err(QuatImageError::InvalidDimensions);
+    }
+    
+    // Provera opsega kvatarnih vrednosti (0..=3)
+    for q in quats {
+        if *q > 3 {
+            return Err(QuatImageError::InvalidQuatValue(*q));
+        }
+    }
+
+    // Osnovna brza petlja (može se proširiti sa AVX2 intrinzicima ukoliko su blokovi veći)
+    for (q_chunk, p_byte) in quats.chunks_exact(4).zip(packed.iter_mut()) {
+        *p_byte = (q_chunk[3] << 6) | (q_chunk[2] << 4) | (q_chunk[1] << 2) | (q_chunk[0] & 0x03);
+    }
+
+    Ok(())
+}

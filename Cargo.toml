@@ -1,6 +1,6 @@
 [package]
 name = "quat_image"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 authors = ["Strale <strahinjastojanovic826@gmail.com>"] 
 description = "A high-performance Rust library for packing 4 pixels (2 bits each) into a single byte with FFI support."

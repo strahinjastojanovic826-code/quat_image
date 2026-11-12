@@ -1,5 +1,6 @@
 use crate::packing::{pack_quats, unpack_quats};
 use crate::error::QuatImageError;
+use rayon::prelude::*;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuatImage {
@@ -113,6 +114,45 @@ impl QuatImage {
         Ok(cropped)
     }
 
+    pub fn erode(&self) -> Result<QuatImage, QuatImageError> {
+        let mut result = QuatImage::new(self.width, self.height)?;
+        
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let mut min_val: u8 = 3;
+                
+                for dy in -1..=1 {
+                    let ny = y as isize + dy;
+                    if ny >= 0 && ny < self.height as isize {
+                        for dx in -1..=1 {
+                            let nx = x as isize + dx;
+                            if nx >= 0 && nx < self.width as isize {
+                                let val = unsafe { self.get_pixel_unchecked(nx as usize, ny as usize) };
+                                if val < min_val {
+                                    min_val = val;
+                                }
+                            }
+                        }
+                    }
+                }
+                unsafe {
+                    result.set_pixel_unchecked(x, y, min_val);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    pub fn opening(&self) -> Result<QuatImage, QuatImageError> {
+        let eroded = self.erode()?;
+        eroded.dilate()
+    }
+
+    pub fn closing(&self) -> Result<QuatImage, QuatImageError> {
+        let dilated = self.dilate()?;
+        dilated.erode()
+    }
+
     pub fn replace_color_par(&mut self, target: u8, replacement: u8) -> Result<(), QuatImageError> {
     if target > 3 || replacement > 3 {
         return Err(QuatImageError::InvalidQuatValue(if target > 3 { target } else { replacement }));
@@ -120,8 +160,6 @@ impl QuatImage {
     if target == replacement {
         return Ok(());
     }
-
-    use rayon::prelude::*;
 
     self.data.par_iter_mut().try_for_each(|byte| -> Result<(), QuatImageError> {
         let (q0, q1, q2, q3) = unpack_quats(*byte);
