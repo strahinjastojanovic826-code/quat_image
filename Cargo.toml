@@ -1,6 +1,6 @@
 [package]
 name = "quat_image"
-version = "0.6.0"
+version = "0.7.1"
 edition = "2024"
 authors = ["Strale <strahinjastojanovic826@gmail.com>"] 
 description = "A high-performance Rust library for packing 4 pixels (2 bits each) into a single byte with FFI support."
@@ -14,8 +14,14 @@ categories = ["data-structures", "compression", "external-ffi-bindings"]
 name = "quat_image"
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+[features]
+default = ["io", "ffi", "parallel"]
+io = []
+ffi = []
+parallel = ["dep:rayon"]
+
 [dependencies]
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 
 [profile.release]
 opt-level = 3

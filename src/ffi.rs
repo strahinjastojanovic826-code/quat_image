@@ -1,3 +1,29 @@
+//! # Safety Notes on `unsafe` and `extern "C"` Blocks in `ffi.rs`
+//!
+//! This module exposes a C-compatible (`extern "C"`) FFI boundary around `QuatImage`
+//! using `QuatImageHandle` pointers, panic catching (`safe_ffi`), and a thread-local
+//! error buffer (`LAST_ERROR`).
+//!
+//! ## Safety Invariants Assumed Across `unsafe` Blocks
+//! - **Handle validity & ownership:** Raw pointers (`*const QuatImageHandle` and
+//!   `*mut QuatImageHandle`) are checked for null before dereferencing. Callers must
+//!   pass valid handles created by `quat_image_new` (or returned by operations like
+//!   `quat_image_erode` / `quat_image_dilate`), avoid aliasing mutable handles across
+//!   threads, and call `quat_image_free` exactly once per owned handle (or
+//!   `quat_image_free_error_message` for non-null error strings returned by
+//!   `quat_image_get_last_error_message`).
+//! - **Output pointers & buffer capacity:** Output pointers (`out_counts`, `result`,
+//!   `dest`) are checked for null before writing. For `quat_image_get_histogram`, the
+//!   caller must provide writable memory for at least 4 `usize` values; for
+//!   `quat_image_copy_bytes`, `dest` must point to a writable buffer of at least
+//!   `dest_cap` bytes (`dest_cap >= data.len()`), and `std::ptr::copy_nonoverlapping`
+//!   assumes source and destination regions do not overlap.
+//! - **FFI panic & type hygiene:** Closures passed to `safe_ffi` catch panics via
+//!   `std::panic::catch_unwind` so panics do not unwind across the FFI boundary.
+//!   Ensure all `unsafe` blocks inside `quat_image_erode` and `quat_image_dilate`
+//!   have explicit, concrete inferred types for the inner image and result handles so
+//!   the code compiles cleanly without unresolved types.
+
 use crate::image::QuatImage;
 use crate::error::QuatImageError;
 use std::os::raw::{c_int, c_uint, c_char};

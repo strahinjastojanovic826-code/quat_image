@@ -12,40 +12,55 @@
 * **Binary Persistence:** Built-in file saving and loading with custom magic header verification.
 * **SIMD & Batch Optimization:** High-performance vectorized block packing and unpacking for maximum CPU throughput.
 * **Multithreading Support:** Parallel pixel processing across multiple CPU cores using Rayon for heavy image workloads.
-* **Lossless RLE Compression:** Compact binary file saving and loading using Run-Length Encoding (RLE) to minimize disk usage.
 * **Advanced Computer Vision:** Built-in morphological operations such as dilation for quaternary and binary mask analysis.
 * **Standard Image Quantization:** Automatic luminance conversion and mapping from standard RGB8 image buffers into 4-level quaternary format.
-* **Advanced Computer Vision:** Built-in morphological operations such as erosion, dilation, opening, and closing for quaternary images.
 * **Multi-Channel Quaternary Images:** Supports 4-channel packed pixel layouts (`MultiQuatImage`) storing 2 bits per channel within a single byte.
+* **Bitwise, Logic & LUT Operations:** `invert`, `invert_par`, 4-entry `remap` (with 256-entry byte lookup table), `threshold`, and element-wise `bitwise_and`, `bitwise_or`, and `bitwise_xor`.
+* **Spatial & Connectivity Operations:** `blit`, `blit_masked`, `flood_fill`, and `connected_components`.
+* **Conversions & Metrics:** `from_grayscale8`, `to_grayscale8`, `to_rgb8`, `diff_count`, `psnr`, and `iou`.
+* **Cache-Friendly & Parallel Algorithms (`src/ops.rs`):** `rotate_90_cw_tiled` (16x16 cache tiles), `dilate_par`, `erode_par`, `opening_par`, `closing_par`, `histogram_par`, and `from_rgb8_par`.
+* **SIMD Packing & Unpacking (`src/packing.rs`):** `pack_quats_simd` and `unpack_quats_simd` with runtime feature detection (`AVX2`, `SSSE3`, `NEON`) and scalar fallback.
+* **Modular Feature Flags (`Cargo.toml`, `src/lib.rs`):** `default`, `io`, `ffi`, and `parallel`.
+* **Zero-Copy Views (`src/view.rs`):** `QuatImageView<'a>` with `view`, `subview`, `get_pixel`, `histogram`, and `to_owned_image`.
+* **Binary Format v1 & RLE Loading (`src/io.rs`):** `save_to_file_v1` and `load_from_file_v1` (`QIMG` v1 header with version and `CRC32` check), plus `load_from_file_rle`.
+* **Test & Benchmark Suite (`tests/new_features_bench.rs`):** Integration tests covering all newly added features with per-test `Instant` timing output.
 
 ---
 
 ## Benchmark
 
-| Test Name | Operation Category | Dataset / Grid Size | Execution Time (Debug Mode) |
-| :--- | :--- | :--- | :--- |
-| `test_01_basic_creation` | Image Creation | 10 x 20 pixels | 9.4 µs[cite: 33] |
-| `test_02_set_and_get_pixel` | Pixel Access | 4 x 4 pixels | 5.6 µs[cite: 33] |
-| `test_03_clear_image` | Image Reset | 2 x 2 pixels | 600 ns[cite: 33] |
-| `test_04_pack_unpack_unit` | Bit Packing | Single Unit | 100 ns[cite: 33] |
-| `test_05_invalid_pixel_value` | Error Handling | Single Unit | 100 ns[cite: 33] |
-| `test_06_out_of_bounds` | Error Handling | 5 x 5 pixels | 100 ns[cite: 33] |
-| `test_07_invalid_dimensions` | Error Handling | 0 x 0 pixels | 0 ns[cite: 33] |
-| `test_08_flip_horizontal` | Transformation | 2 x 2 pixels | 4.8 µs[cite: 33] |
-| `test_08_flip_vertical` | Transformation | 2 x 2 pixels | 2.5 µs[cite: 33] |
-| `test_histogram` | Statistics | 2 x 2 pixels | 600 ns[cite: 33] |
-| `test_morphological_dilation` | Morphology | 3 x 3 pixels | 9.3 µs[cite: 33] |
-| `test_image_crop_benchmark` | Crop | 200x200 $\rightarrow$ 100x100 | 827.2 µs[cite: 33] |
-| `test_morphological_erosion` | Morphology | 10 x 10 pixels | 38.8 µs[cite: 33] |
-| `test_pack_quats_slice_batch` | Bit Packing | Slice Batch | 900 ns[cite: 33] |
-| `test_rgb8_quantization` | Conversion | 2 x 2 RGB pixels | 2 µs[cite: 33] |
-| `test_replace_color_parallel` | Parallel (Rayon) | 3 x 3 pixels | 540.8 µs[cite: 33] |
-| `test_rotate_90_cw` | Transformation | 2 x 1 pixels | 1 µs[cite: 33] |
-| `test_opening_benchmark` | Morphology | 100 x 100 pixels | 8.79 ms[cite: 33, 34] |
-| `test_closing_benchmark` | Morphology | 100 x 100 pixels | 7.93 ms[cite: 33, 34] |
-| `test_10_write_1M_pixels` | Stress / Write | 1000 x 1000 (1M pixels) | 49.98 ms[cite: 33, 34] |
-| `test_10_read_1M_pixels` | Stress / Read | 1000 x 1000 (1M pixels) | 45.68 ms[cite: 33, 34] |
-| `test_10_flips_1M_pixels` | Stress / Transform | 1000 x 1000 (1M pixels) | 143.55 ms[cite: 34] |
+| Benchmark / Test Name | Category | Measured Time |
+| :--- | :--- | :--- |
+| `test_01_basic_creation` | Image creation & dimensions | `10.3µs` |
+| `test_02_set_and_get_pixel` | Pixel read/write access | `7.6µs` |
+| `test_03_clear_image` | Buffer reset / clear | `1.5µs` |
+| `test_04_pack_unpack_unit` | Quaternary bit packing/unpacking | `100ns` |
+| `test_05_invalid_pixel_value` | Validation error (`> 3`) | `100ns` |
+| `test_06_out_of_bounds` | Bounds check error | `100ns` |
+| `test_07_invalid_dimensions` | Zero dimensions check | `0ns` |
+| `test_08_flip_horizontal` | Horizontal image flip | `7.6µs` |
+| `test_08_flip_vertical` | Vertical image flip | `2.2µs` |
+| `test_09_integer_overflow_protection` | Overflow protection (`usize::MAX`) | `200ns` |
+| `test_10_write_1M_pixels` | Stress write (`1000x1000` grid) | `8.3432ms` |
+| `test_10_read_1M_pixels` | Stress read & verify (`1000x1000` grid) | `52.1171ms` |
+| `test_10_flips_1M_pixels` | Stress flips (`1000x1000` grid) | `144.0331ms` |
+| `test_15_quaternary_bitwise_and_invert` | Bitwise ops & invert | `15µs` |
+| `test_16_remap_and_threshold` | LUT remap & thresholding | `38µs` |
+| `test_17_blit_flood_fill_and_connected_components` | Blit, flood fill & components | `13.5µs` |
+| `test_18_grayscale_rgb_and_metrics` | Conversions & quality metrics | `9.1µs` |
+| `test_19_zero_copy_view_and_subview` | Zero-copy views & subviews | `3µs` |
+| `test_20_simd_pack_unpack_roundtrip` | SIMD pack/unpack roundtrip | `16.8µs` |
+| `test_21_tiled_rotate_and_parallel_ops` | Cache-tiled rotation & parallel ops | `1.6399ms` |
+| `test_22_binary_v1_and_rle_roundtrip` | Binary v1 & RLE file roundtrip | `1.078ms` |
+| `test_histogram` | Histogram calculation | `600ns` |
+| `test_pack_quats_slice_batch` | Batch slice packing | `1µs` |
+| `test_replace_color_parallel` | Parallel color replacement | `47.6µs` |
+| `test_rgb8_quantization_conversion` | RGB8 quantization (`2x2`) | `1.9µs` |
+| `test_rotate_90_cw` | 90° clockwise rotation | `1.5µs` |
+| `Crop (50..150)` | Cropping benchmark | `1.1728ms` |
+| `Erosion (10x10)` | Morphological erosion (`10x10`) | `53.2µs` |
+| `Opening (100x100)` | Morphological opening (`100x100`) | `8.3432ms` |
+| `Closing (100x100)` | Morphological closing (`100x100`) | `8.5396ms` |
 
 ---
 
@@ -66,7 +81,7 @@ Add the library to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-quat_image = 0.6.0 
+quat_image = "0.7.1"
 ```
 
 Configure your library crate type for FFI compilation:
@@ -76,6 +91,12 @@ Configure your library crate type for FFI compilation:
 name = "quat_image"
 crate-type = ["cdylib", "staticlib"]
 ```
+
+---
+
+### Cargo Features 
+
+* **Modular Cargo Features (`io`, `ffi`, `parallel`):** Enable only the capabilities you need (`io` for file persistence, `ffi` for C/C++/C#/Python bindings, `parallel` for multi-threaded `rayon` operations) or run with `--no-default-features` for core in-memory operations.
 
 ---
 
@@ -106,6 +127,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Crop a sub-region (x: 0, y: 0, width: 2, height: 2)
     let cropped = img.crop(0, 0, 2, 2)?;
     println!("Cropped image dimensions: {}x{}", cropped.width(), cropped.height());
+
+    Ok(())
+}
+```
+
+---
+
+### More Examples (Views, Logic, Spatial Ops & Binary v1)
+
+```rust
+use quat_image::image::QuatImage;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut img = QuatImage::new(8, 8)?;
+    img.set_pixel(1, 1, 2)?;
+    img.set_pixel(2, 1, 2)?;
+    img.set_pixel(1, 2, 2)?;
+    img.set_pixel(2, 2, 2)?;
+
+    // 1. Zero-copy view over a sub-region (no allocation or copy)
+    let window = img.view(1, 1, 4, 4)?;
+    let _hist_window = window.histogram();
+
+    // 2. LUT remap & threshold
+    img.remap([0, 1, 3, 3])?;
+    img.threshold(2, 0, 3)?;
+
+    // 3. Spatial flood fill & connected components
+    let _filled = img.flood_fill(1, 1, 2)?;
+    let (_labels, _comp_count) = img.connected_components();
+
+    // 4. Quality metric (IoU) & binary v1 persistence with CRC32
+    let _iou_score = img.iou(&img, 2)?;
+    img.save_to_file_v1("mask_v1.qimg")?;
+    let _loaded = QuatImage::load_from_file_v1("mask_v1.qimg")?;
 
     Ok(())
 }
@@ -237,6 +293,36 @@ int main() {
 
 ---
 
+### Additional FFI Examples (C, C++ & C#)
+
+#### C (`extra_ffi.c`)
+```c
+#include <stdint.h>
+#include <stdio.h>
+
+typedef struct QuatImageHandle QuatImageHandle;
+extern QuatImageHandle* quat_image_new(unsigned int width, unsigned int height);
+extern void quat_image_free(QuatImageHandle* handle);
+extern int quat_image_set_pixel(QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t val);
+extern int quat_image_get_pixel(const QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t* result);
+
+int run_extra_c(void) {
+    QuatImageHandle* img = quat_image_new(8, 8);
+    if (!img) return 1;
+
+    quat_image_set_pixel(img, 2, 3, 2);
+    uint8_t px = 0;
+    if (quat_image_get_pixel(img, 2, 3, &px) == 0) {
+        printf("Pixel at (2, 3): %u\n", px);
+    }
+
+    quat_image_free(img);
+    return 0;
+}
+```
+
+---
+
 ### 2. C++ Integration (`main.cpp`)
 
 ```cpp
@@ -359,6 +445,34 @@ int main() {
         std::cerr << "Error: " << e.what() << std::endl;
     }
     return 0;
+}
+```
+
+---
+
+#### C++ (`extra_ffi.cpp`)
+```cpp
+#include <cstdint>
+#include <iostream>
+
+extern "C" {
+struct QuatImageHandle;
+QuatImageHandle* quat_image_new(unsigned int width, unsigned int height);
+void quat_image_free(QuatImageHandle* handle);
+int quat_image_set_pixel(QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t val);
+int quat_image_get_pixel(const QuatImageHandle* handle, unsigned int x, unsigned int y, uint8_t* result);
+}
+
+void run_extra_cpp() {
+    QuatImageHandle* raw = quat_image_new(4, 4);
+    if (!raw) return;
+
+    quat_image_set_pixel(raw, 1, 1, 3);
+    std::uint8_t val = 0;
+    if (quat_image_get_pixel(raw, 1, 1, &val) == 0) {
+        std::cout << "C++ pixel (1, 1) = " << static_cast<int>(val) << "\n";
+    }
+    quat_image_free(raw);
 }
 ```
 
@@ -496,6 +610,29 @@ namespace QuatImageDemo
 
 ---
 
+#### C# (`ExtraFfi.cs`)
+```csharp
+using System;
+using System.Runtime.InteropServices;
+
+static class ExtraQuatInterop
+{
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr quat_image_new(uint width, uint height);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    public static extern void quat_image_free(IntPtr handle);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int quat_image_set_pixel(IntPtr handle, uint x, uint y, byte val);
+
+    [DllImport("quat_image", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int quat_image_get_pixel(IntPtr handle, uint x, uint y, out byte result);
+}
+```
+
+---
+
 ### 4. Python Integration (`main.py`)
 
 ```python
@@ -598,4 +735,51 @@ if __name__ == "__main__":
         print("Python example executed successfully.")
     except Exception as e:
         print(f"Error: {e}")
+```
+
+---
+
+### Additional Python Example (`extra_main.py`)
+
+```python
+import ctypes
+
+
+def run_extra_python(lib: ctypes.CDLL) -> None:
+    lib.quat_image_new.argtypes = [ctypes.c_uint, ctypes.c_uint]
+    lib.quat_image_new.restype = ctypes.c_void_p
+    lib.quat_image_free.argtypes = [ctypes.c_void_p]
+    lib.quat_image_free.restype = None
+
+    lib.quat_image_set_pixel.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_uint,
+        ctypes.c_ubyte,
+    ]
+    lib.quat_image_set_pixel.restype = ctypes.c_int
+
+    lib.quat_image_get_pixel.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.c_uint,
+        ctypes.POINTER(ctypes.c_ubyte),
+    ]
+    lib.quat_image_get_pixel.restype = ctypes.c_int
+
+    handle = lib.quat_image_new(8, 8)
+    if not handle:
+        raise RuntimeError("Failed to allocate QuatImage")
+
+    try:
+        if lib.quat_image_set_pixel(handle, 3, 4, 2) != 0:
+            raise RuntimeError("Failed to set pixel")
+
+        pixel = ctypes.c_ubyte(0)
+        if lib.quat_image_get_pixel(handle, 3, 4, ctypes.byref(pixel)) != 0:
+            raise RuntimeError("Failed to get pixel")
+
+        print(f"Python extra pixel (3, 4) = {pixel.value}")
+    finally:
+        lib.quat_image_free(handle)
 ```

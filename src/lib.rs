@@ -1,9 +1,17 @@
 pub mod packing;
 pub mod image;
-pub mod ffi;
 pub mod error;
-pub mod io;
 pub mod multi_image;
+pub mod view;
+
+#[cfg(feature = "io")]
+pub mod io;
+
+#[cfg(feature = "ffi")]
+pub mod ffi;
+
+#[cfg(feature = "parallel")]
+pub mod ops;
 
 pub use packing::*;
 pub use image::*;
@@ -16,6 +24,7 @@ mod tests {
     use crate::packing::{pack_quats, unpack_quats};
     use crate::image::QuatImage;
     use std::time::Instant;
+    use crate::view::QuatImageView;
 
     // ==========================================
     // 1. Osnovni testovi (Najlakši - Happy Path)
@@ -386,6 +395,208 @@ fn test_image_crop_benchmark() {
     assert_eq!(cropped.width(), 100);
     assert_eq!(cropped.height(), 100);
     assert_eq!(cropped.get_pixel(50, 50).unwrap(), 3);
+}
+
+#[test]
+fn test_15_quaternary_bitwise_and_invert() {
+    let mut a = QuatImage::new(4, 2).unwrap();
+    let mut b = QuatImage::new(4, 2).unwrap();
+    a.set_pixel(0, 0, 1).unwrap(); // 01
+    a.set_pixel(1, 0, 2).unwrap(); // 10
+    a.set_pixel(2, 0, 3).unwrap(); // 11
+    b.set_pixel(0, 0, 3).unwrap(); // 11
+    b.set_pixel(1, 0, 1).unwrap(); // 01
+    b.set_pixel(2, 0, 2).unwrap(); // 10
+
+    let start = Instant::now();
+    let and_img = a.bitwise_and(&b).unwrap();
+    let or_img = a.bitwise_or(&b).unwrap();
+    let xor_img = a.bitwise_xor(&b).unwrap();
+    a.invert();
+    println!(
+        "[BENCHMARK] test_15_quaternary_bitwise_and_invert: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(and_img.get_pixel(0, 0).unwrap(), 1);
+    assert_eq!(and_img.get_pixel(1, 0).unwrap(), 0);
+    assert_eq!(and_img.get_pixel(2, 0).unwrap(), 2);
+    assert_eq!(or_img.get_pixel(1, 0).unwrap(), 3);
+    assert_eq!(xor_img.get_pixel(2, 0).unwrap(), 1);
+    assert_eq!(a.get_pixel(0, 0).unwrap(), 2); // 3 - 1 = 2
+}
+
+#[test]
+fn test_16_remap_and_threshold() {
+    let mut img = QuatImage::new(4, 1).unwrap();
+    img.set_pixel(0, 0, 0).unwrap();
+    img.set_pixel(1, 0, 1).unwrap();
+    img.set_pixel(2, 0, 2).unwrap();
+    img.set_pixel(3, 0, 3).unwrap();
+
+    let start = Instant::now();
+    img.remap([3, 1, 2, 0]).unwrap();
+    img.threshold(2, 0, 3).unwrap();
+    println!(
+        "[BENCHMARK] test_16_remap_and_threshold: {:?}",
+        start.elapsed()
+    );
+
+    // After remap([3,1,2,0]): pixels become [3, 1, 2, 0]
+    // After threshold(2, 0, 3): values >= 2 -> 3, values < 2 -> 0 => [3, 0, 3, 0]
+    assert_eq!(img.get_pixel(0, 0).unwrap(), 3);
+    assert_eq!(img.get_pixel(1, 0).unwrap(), 0);
+    assert_eq!(img.get_pixel(2, 0).unwrap(), 3);
+    assert_eq!(img.get_pixel(3, 0).unwrap(), 0);
+}
+
+#[test]
+fn test_17_blit_flood_fill_and_connected_components() {
+    let mut canvas = QuatImage::new(6, 6).unwrap();
+    let mut patch = QuatImage::new(2, 2).unwrap();
+    patch.set_pixel(0, 0, 2).unwrap();
+    patch.set_pixel(1, 0, 2).unwrap();
+    patch.set_pixel(0, 1, 2).unwrap();
+    patch.set_pixel(1, 1, 2).unwrap();
+
+    let start = Instant::now();
+    canvas.blit(&patch, 1, 1).unwrap();
+    let filled = canvas.flood_fill(1, 1, 3).unwrap();
+    let (labels, count) = canvas.connected_components();
+    println!(
+        "[BENCHMARK] test_17_blit_flood_fill_and_connected_components: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(filled, 4);
+    assert_eq!(canvas.get_pixel(2, 2).unwrap(), 3);
+    assert_eq!(count, 1);
+    assert_eq!(labels.len(), 36);
+}
+
+#[test]
+fn test_18_grayscale_rgb_and_metrics() {
+    let gray = vec![0u8, 85, 170, 255];
+
+    let start = Instant::now();
+    let mut img = QuatImage::from_grayscale8(2, 2, &gray).unwrap();
+    let expanded_gray = img.to_grayscale8();
+    let rgb = img.to_rgb8([[0, 0, 0], [80, 80, 80], [160, 160, 160], [255, 255, 255]]);
+    let diffs = img.diff_count(&img).unwrap();
+    let psnr_val = img.psnr(&img).unwrap();
+    let iou_val = img.iou(&img, 3).unwrap();
+    img.set_pixel(0, 0, 1).unwrap();
+    let diffs_after = img.diff_count(&QuatImage::from_grayscale8(2, 2, &gray).unwrap()).unwrap();
+    println!(
+        "[BENCHMARK] test_18_grayscale_rgb_and_metrics: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(expanded_gray, vec![0, 85, 170, 255]);
+    assert_eq!(rgb.len(), 12);
+    assert_eq!(diffs, 0);
+    assert!(psnr_val.is_infinite());
+    assert!((iou_val - 1.0).abs() < f64::EPSILON);
+    assert_eq!(diffs_after, 1);
+}
+
+#[test]
+fn test_19_zero_copy_view_and_subview() {
+    let mut img = QuatImage::new(8, 8).unwrap();
+    img.set_pixel(3, 3, 2).unwrap();
+    img.set_pixel(4, 4, 3).unwrap();
+
+    let start = Instant::now();
+    let view = img.view(2, 2, 4, 4).unwrap();
+    let sub: QuatImageView<'_> = view.subview(1, 1, 2, 2).unwrap();
+    let hist = sub.histogram();
+    let owned = sub.to_owned_image().unwrap();
+    println!(
+        "[BENCHMARK] test_19_zero_copy_view_and_subview: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(view.width(), 4);
+    assert_eq!(sub.get_pixel(0, 0).unwrap(), 2);
+    assert_eq!(sub.get_pixel(1, 1).unwrap(), 3);
+    assert_eq!(hist[2], 1);
+    assert_eq!(hist[3], 1);
+    assert_eq!(owned.get_pixel(1, 1).unwrap(), 3);
+}
+
+#[test]
+fn test_20_simd_pack_unpack_roundtrip() {
+    let quats: Vec<u8> = (0..128).map(|i| (i % 4) as u8).collect();
+    let mut packed = vec![0u8; 32];
+    let mut unpacked = vec![0u8; 128];
+
+    let start = Instant::now();
+    pack_quats_simd(&quats, &mut packed).unwrap();
+    unpack_quats_simd(&packed, &mut unpacked).unwrap();
+    let invalid_res = pack_quats_simd(&[0, 1, 4, 0], &mut [0u8; 1]);
+    println!(
+        "[BENCHMARK] test_20_simd_pack_unpack_roundtrip: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(unpacked, quats);
+    assert!(matches!(invalid_res, Err(QuatImageError::InvalidQuatValue(4))));
+}
+
+#[cfg(feature = "parallel")]
+#[test]
+fn test_21_tiled_rotate_and_parallel_ops() {
+    let mut img = QuatImage::new(64, 64).unwrap();
+    for y in 0..64 {
+        for x in 0..64 {
+            img.set_pixel(x, y, ((x + y) % 4) as u8).unwrap();
+        }
+    }
+
+    let start = Instant::now();
+    let mut rotated = img.clone();
+    rotated.rotate_90_cw_tiled().unwrap();
+    let dilated = img.dilate_par().unwrap();
+    let eroded = img.erode_par().unwrap();
+    let hist = img.histogram_par();
+    println!(
+        "[BENCHMARK] test_21_tiled_rotate_and_parallel_ops: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(rotated.width(), 64);
+    assert_eq!(rotated.height(), 64);
+    assert_eq!(dilated.width(), 64);
+    assert_eq!(eroded.height(), 64);
+    assert_eq!(hist.iter().sum::<usize>(), 64 * 64);
+}
+
+#[cfg(feature = "io")]
+#[test]
+fn test_22_binary_v1_and_rle_roundtrip() {
+    let mut img = QuatImage::new(8, 8).unwrap();
+    img.set_pixel(1, 2, 1).unwrap();
+    img.set_pixel(5, 6, 3).unwrap();
+
+    let v1_path = std::env::temp_dir().join("quat_image_test_v1.qimg");
+    let rle_path = std::env::temp_dir().join("quat_image_test_v1.qrle");
+
+    let start = Instant::now();
+    img.save_to_file_v1(&v1_path).unwrap();
+    let loaded_v1 = QuatImage::load_from_file_v1(&v1_path).unwrap();
+
+    img.save_to_file_rle(&rle_path).unwrap();
+    let loaded_rle = QuatImage::load_from_file_rle(&rle_path).unwrap();
+    println!(
+        "[BENCHMARK] test_22_binary_v1_and_rle_roundtrip: {:?}",
+        start.elapsed()
+    );
+
+    assert_eq!(loaded_v1, img);
+    assert_eq!(loaded_rle, img);
+
+    let _ = std::fs::remove_file(v1_path);
+    let _ = std::fs::remove_file(rle_path);
 }
 
 }
